@@ -1,0 +1,139 @@
+#Script used to provision different Site Templates in your tenant
+#There are multiple parameters that will need to be updated below
+
+[CmdletBinding()]
+Param(
+    [string]$sitetitle,
+    [string]$siteurl,
+    [string]$siteowner,
+    [string]$sitetype,
+    [string]$sitealias,
+    [string]$sitenavparentid
+)
+
+#create site functions
+function Team-CreateSite {
+    Write-Output ("Creating an Awesome Team Site")  
+    New-PnPSite -Type TeamSite -Title $sitetitle -Url $siteurl -Lcid 1033
+
+}
+
+function Project-CreateSite {
+    Write-Output ("Creating a Project Site")  
+    New-PnPSite -Type TeamSite -Alias $sitealias -Title $sitetitle
+
+    #wait for site to be created
+    Write-Output ("Checking for site to finish creating")
+    do {
+        Start-Sleep -Seconds 1
+        Connect-PnPOnline -Url $siteurl -Credentials $cred -ErrorAction SilentlyContinue
+        $site = Get-PnPSite -ErrorAction SilentlyContinue
+    } while ($site -eq $null)
+
+    #extra pause
+    Write-Output ("Pausing while site is being creating")
+    Start-Sleep -Seconds 5
+
+    #add site design
+    Write-Output ("Adding site design")
+    $sitedesign = Get-PnPSiteDesign | where {$_.Title -eq "ProjectSiteDesignGoesHere"}
+    Invoke-PnPSiteDesign -Identity $sitedesign.Id  
+
+    #add Project Manager as an Owner on the Project Site
+    Write-Output ("Updating Office 365 Group members/owners")
+    Add-UnifiedGroupLinks -Identity $sitealias -LinkType Members -Links $siteowner 
+    Add-UnifiedGroupLinks -Identity $sitealias -LinkType Owners -Links $siteowner 
+
+    #add to project top nav of hub site
+    Connect-PnPOnline -Url "https://domain.sharepoint.com/sites/ProjectHubNameGoesHere" -Credentials $cred
+	#the parent ID is the id of the term header that we want to add this as a sub header
+    Add-PnPNavigationNode -Location TopNavigationBar -Title $sitetitle -Url $siteurl -Parent 2006
+
+}
+
+function Customer-CreateSite {
+    Write-Output ("Creating a Customer Site")  
+    New-PnPSite -Type TeamSite -Alias $sitealias -Title $sitetitle
+
+    #wait for site to be created
+    Write-Output ("Checking for site to finish creating")
+    do {
+        Start-Sleep -Seconds 1
+        Connect-PnPOnline -Url $siteurl -Credentials $cred -ErrorAction SilentlyContinue
+        $site = Get-PnPSite -ErrorAction SilentlyContinue
+    } while ($site -eq $null)
+
+    #extra pause
+    Write-Output ("Pausing while site is being creating")
+    Start-Sleep -Seconds 5
+
+    #add site design
+    Write-Output ("Adding site design")
+    $sitedesign = Get-PnPSiteDesign | where {$_.Title -eq "Customer Site"}
+    Invoke-PnPSiteDesign -Identity $sitedesign.Id  
+
+    #add Customer Account Rep as an Owner on the Customer Site
+    Write-Output ("Updating Office 365 Group members/owners")
+    Add-UnifiedGroupLinks -Identity $sitealias -LinkType Members -Links $siteowner 
+    Add-UnifiedGroupLinks -Identity $sitealias -LinkType Owners -Links $siteowner 
+
+    #add to project top nav of hub site
+    #insert nav item under the industry vertical the Customer site belongs to
+    Connect-PnPOnline -Url "https://domain.sharepoint.com/sites/CustomerHub" -Credentials $cred
+	#the parent ID is the id of the navigation header to add this site link as a sub header
+    #to retrieve the navigation IDs: Get-PnPNavigationNode -Location TopNavigationBar -Tree
+    #this value is passed in from the Flow    
+    Add-PnPNavigationNode -Location TopNavigationBar -Title $sitetitle -Url $siteurl -Parent $sitenavparentid
+
+}
+
+#set fields - These should be shifted to pull from variables
+$domain = "https://domain.sharepoint.com"
+$status = "Connecting"
+
+#get creds
+$cred = Get-AutomationPSCredential -Name "SharePointAdmin"
+try {
+    #connect to spo
+    Connect-PnPOnline "https://domain-admin.sharepoint.com" -Credentials $cred
+
+    #check connection
+    $context = Get-PnPContext
+    if($context){
+        Write-Output ("Connected to SharePoint Online - Checking if site exists")
+        $status = "Connected"
+        $siteurl = $domain + "/sites/" + $siteurl
+
+        #check if site exists
+        $site = Get-PnPTenantSite $siteurl -ErrorAction SilentlyContinue
+        if(!$site){
+            $Session = New-PSSession –ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid -Credential $cred -Authentication Basic -AllowRedirection
+            Import-PSSession -Session $Session -DisableNameChecking:$true -AllowClobber:$true | Out-Null
+
+            $status = "Creating site"
+            Write-Output ("Creating a new site for $siteurl")
+            if ($sitetype -eq "Project Site") {
+                Project-CreateSite
+            } elseif ($sitetype -eq "Customer Site") {
+                Customer-CreateSite
+            } elseif  ($sitetype -eq "Awesome Team Site") {
+                Team-CreateSite
+            } else {
+                Write-Output ("No site for the site type: $sitetype")
+            }
+        } else {
+            Write-Output ("$siteurl already exists")
+            $status = "Site already exists"
+        }
+
+    } else {
+        Write-Output ("Issue connecting to SharePoint Online")
+        $status = "Error connecting to SharePoint Online"
+    }
+}
+catch
+{
+    #issue with script
+    $status = "Ran into an issue: $($PSItem.ToString())"
+    Write-Output $status
+}
