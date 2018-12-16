@@ -1,5 +1,5 @@
-#Script used to provision different Site Templates in your tenant
-#There are multiple parameters that will need to be updated below
+#Script used to provision a customer site in the domain tenant
+#Parameters are passed in below
 
 [CmdletBinding()]
 Param(
@@ -12,45 +12,6 @@ Param(
 )
 
 #create site functions
-function Team-CreateSite {
-    Write-Output ("Creating an Awesome Team Site")  
-    New-PnPSite -Type TeamSite -Title $sitetitle -Url $siteurl -Lcid 1033
-
-}
-
-function Project-CreateSite {
-    Write-Output ("Creating a Project Site")  
-    New-PnPSite -Type TeamSite -Alias $sitealias -Title $sitetitle
-
-    #wait for site to be created
-    Write-Output ("Checking for site to finish creating")
-    do {
-        Start-Sleep -Seconds 1
-        Connect-PnPOnline -Url $siteurl -Credentials $cred -ErrorAction SilentlyContinue
-        $site = Get-PnPSite -ErrorAction SilentlyContinue
-    } while ($site -eq $null)
-
-    #extra pause
-    Write-Output ("Pausing while site is being creating")
-    Start-Sleep -Seconds 5
-
-    #add site design
-    Write-Output ("Adding site design")
-    $sitedesign = Get-PnPSiteDesign | where {$_.Title -eq "ProjectSiteDesignGoesHere"}
-    Invoke-PnPSiteDesign -Identity $sitedesign.Id  
-
-    #add Project Manager as an Owner on the Project Site
-    Write-Output ("Updating Office 365 Group members/owners")
-    Add-UnifiedGroupLinks -Identity $sitealias -LinkType Members -Links $siteowner 
-    Add-UnifiedGroupLinks -Identity $sitealias -LinkType Owners -Links $siteowner 
-
-    #add to project top nav of hub site
-    Connect-PnPOnline -Url "https://domain.sharepoint.com/sites/ProjectHubNameGoesHere" -Credentials $cred
-	#the parent ID is the id of the term header that we want to add this as a sub header
-    Add-PnPNavigationNode -Location TopNavigationBar -Title $sitetitle -Url $siteurl -Parent 2006
-
-}
-
 function Customer-CreateSite {
     Write-Output ("Creating a Customer Site")  
     New-PnPSite -Type TeamSite -Alias $sitealias -Title $sitetitle
@@ -77,25 +38,23 @@ function Customer-CreateSite {
     Add-UnifiedGroupLinks -Identity $sitealias -LinkType Members -Links $siteowner 
     Add-UnifiedGroupLinks -Identity $sitealias -LinkType Owners -Links $siteowner 
 
-    #add to project top nav of hub site
-    #insert nav item under the industry vertical the Customer site belongs to
-    Connect-PnPOnline -Url "https://domain.sharepoint.com/sites/CustomerHub" -Credentials $cred
-	#the parent ID is the id of the navigation header to add this site link as a sub header
+    #insert topnav item on Customer Hub under the industry vertical the Customer site belongs to
+	#the sitenavparentid is the id of the navigation header to add this site link as a sub header
     #to retrieve the navigation IDs: Get-PnPNavigationNode -Location TopNavigationBar -Tree
-    #this value is passed in from the Flow    
+    Connect-PnPOnline -Url "https://nexnovusconsulting.sharepoint.com/sites/CustomerHub" -Credentials $cred
     Add-PnPNavigationNode -Location TopNavigationBar -Title $sitetitle -Url $siteurl -Parent $sitenavparentid
 
 }
 
 #set fields - These should be shifted to pull from variables
-$domain = "https://domain.sharepoint.com"
+$domain = "https://nexnovusconsulting.sharepoint.com"
 $status = "Connecting"
 
 #get creds
 $cred = Get-AutomationPSCredential -Name "SharePointAdmin"
 try {
     #connect to spo
-    Connect-PnPOnline "https://domain-admin.sharepoint.com" -Credentials $cred
+    Connect-PnPOnline "https://nexnovusconsulting-admin.sharepoint.com" -Credentials $cred
 
     #check connection
     $context = Get-PnPContext
@@ -112,12 +71,8 @@ try {
 
             $status = "Creating site"
             Write-Output ("Creating a new site for $siteurl")
-            if ($sitetype -eq "Project Site") {
-                Project-CreateSite
-            } elseif ($sitetype -eq "Customer Site") {
+            if ($sitetype -eq "Customer Site") {
                 Customer-CreateSite
-            } elseif  ($sitetype -eq "Awesome Team Site") {
-                Team-CreateSite
             } else {
                 Write-Output ("No site for the site type: $sitetype")
             }
